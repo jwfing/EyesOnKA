@@ -81,7 +81,7 @@ AV.Cloud.define('redis_check_timer', function(req, res) {
               }
               // read internal monitor key
               client.get(internal_monitor_key, function(err, response){
-                if (err) {
+                if (err || !response) {
                   send_notify("warn", "internal Key not exist. appName:" + appName + ", instanceId:"+ instanceId);
                   console.error('    READ internal key error. appName:%s, instanceId:%s, causeBy:%s', appName, instanceId, err)
                 } else if (parseInt(response) + allowedMaxGap < currentTS) {
