@@ -1,6 +1,8 @@
 var AV = require('leanengine');
 var Redis = require('redis');
 var https = require('https');
+var http = require('http');
+var parse = require('url-parse');
 var querystring = require('querystring');
 
 var options = {
@@ -17,13 +19,36 @@ var RedisMonitorItem = AV.Object.extend('RedisMonitorItem');
  * 一个简单的云代码方法
  */
 AV.Cloud.define('hello', function(request, response) {
-  send_notify('info', 'test message')
+  send_notify('EyesOnKA', '云引擎', 'test message')
   response.success('Hello world!');
 });
 
-function send_notify(level, msg) {
+function send_sms_notify(appName, service, detailInfo) {
+  AV.Cloud.requestSmsCode({
+    mobilePhoneNumber: '18600345198',
+    template: 'ka_alert',
+		kaname:appName,
+		servicename: service,
+		detail:detailInfo
+  }).then(function() {
+    console.log('successed to send notify sms');
+  }, function(err) {
+    console.error(err);
+  });
+}
+
+function send_notify(appName, service, detailInfo) {
+  try {
+    send_sms_notify(appName, service, detailInfo);
+    send_bearychat_notify(appName, service, detailInfo);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function send_bearychat_notify(appName, service, msg) {
   var post_data = JSON.stringify({
-    'text': level.toUpperCase() + ' - ' +  msg,
+    'text': appName + ' 的 ' + service + ' 服务出现故障，详情：' + msg,
   });
   var req = https.request(options, function(res) {
     console.log('\t  send notify to bearychat. response STATUS: ' + res.statusCode);
@@ -60,12 +85,25 @@ AV.Cloud.define('redis_check_timer', function(req, res) {
           var expectedSize = item.get('expectedResultSize');
           var notifyUrl = item.get('notifyUrl');
           var instanceId = item.get('instanceId');
+	  var engineUrl = item.get('engineEntranceUrl');
           var client = Redis.createClient(redisHost);
           console.log('  check item: appName=%s, targetRedis=%s, instanceId=%s, criticalKey=%s ...',
                        appName, redisHost, instanceId, criticalKey)
+          if (engineUrl && engineUrl.length>0) {
+	          var url = parse(engineUrl, true);
+            http.get({
+  	          host: url.host,
+              path: url.pathname
+	          }, function(response) {
+	            if (response.statusCode >= 500) {
+	              send_notify(appName, "LeanEngine", 'response status - ' + response.statusCode);
+                console.error('    LEANENGINE error. appName:%s, instanceId:%s, statusCode: %s', appName, instanceId, response.statusCode);
+ 	            }
+	          });
+	        }
           client.on('error', function(err) {
-            send_notify("warn", "UNKNOWN error. appName:" + appName + ", instanceId:" + instanceId);
-            console.error('    UNKNOWN error. appName:%s, instanceId:%s, causeBy: %s', appName, instanceId, err);
+            send_notify(appName, "LeanCache", "UNKNOWN error. instanceId:" + instanceId);
+            console.error('    REDIS UNKNOWN error. appName:%s, instanceId:%s, causeBy: %s', appName, instanceId, err);
             client.end();
             setTimeout(checkRedisItem(i+1), 2000);
             return;
@@ -73,30 +111,25 @@ AV.Cloud.define('redis_check_timer', function(req, res) {
           client.on('connect', function() {
             client.exists(criticalKey, function(err, reply) {
               if (err || reply < 1) {
-                send_notify("warn", "READ error. appName:" + appName + ", instanceId:" + instanceId + ', key:' + criticalKey);
-                console.error('    READ error. appName:%s, instanceId:%s, causeBy:%s', appName, instanceId, err);
+                send_notify(appName, "LeanCache", "READ error. instanceId:" + instanceId + ', key:' + criticalKey);
+                console.error('    REDIS READ error. appName:%s, instanceId:%s, causeBy:%s', appName, instanceId, err);
               } else {
                 // do nothing.
-                console.info('    criticalKey existed: ' + criticalKey)
               }
               // read internal monitor key
               client.get(internal_monitor_key, function(err, response){
                 if (err || !response) {
-                  send_notify("warn", "internal Key not exist. appName:" + appName + ", instanceId:"+ instanceId);
-                  console.error('    READ internal key error. appName:%s, instanceId:%s, causeBy:%s', appName, instanceId, err)
+                  send_notify(appName, "LeanCache", "internal Key not exist.");
+                  console.error('    REDIS READ internal key error. appName:%s, instanceId:%s, causeBy:%s', appName, instanceId, err)
                 } else if (parseInt(response) + allowedMaxGap < currentTS) {
-                  send_notify("warn", "Invalid internal Key. appName:" + appName + ", instanceId:"+ instanceId + ", internalValue:"+ response + ", currentTS:" + currentTS)
-                  console.warn('    Invalid internal key. appName:%s, instanceId:%s, value:%s', appName, instanceId, response)
-                } else {
-                  console.info('    read internal monitor key:' + internal_monitor_key + ', value:' + response)
+                  send_notify(appName, "LeanCache", "Invalid internal Key. currentValue:" + response + ", delay:" + (currentTS-parseInt(response))/60 + ' mins');
+                  console.warn('    REDIS Invalid internal key. appName:%s, instanceId:%s, value:%s', appName, instanceId, response)
                 }
                 // write new value to internal monitor key
                 client.set(internal_monitor_key, currentTS, function(err){
                   if (err) {
-                    send_notify("warn", "WRITE error. appName:" + appName + ", instanceId:" + instanceId + ", key:" + internal_monitor_key);
-                    console.error('    WRITE internal key error. appName:%s, instanceId:%s, causeBy:%s', appName, instanceId, err);
-                  } else {
-                    console.info('    set internal monitor key with value:' + currentTS)
+                    send_notify(appName, "LeanCache", "WRITE internal key error. ");
+                    console.error('   REDIS WRITE internal key error. appName:%s, instanceId:%s, causeBy:%s', appName, instanceId, err);
                   }
                   client.end();
                   setTimeout(checkRedisItem(i+1), 2000);
@@ -110,8 +143,9 @@ AV.Cloud.define('redis_check_timer', function(req, res) {
       res.success(results.length)
     },
     error: function(error) {
-      console.log('failed to query check item for redis service.');
-      res.error('failed to exec monitor item query')
+      console.error('Failed to query check item for redis service.');
+      send_notify("EyesOnKA", "LeanCloud", "failed to exec query for monitor items");
+      res.error('failed to exec query for monitor items');
     }
   });
 });
