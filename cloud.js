@@ -27,11 +27,22 @@ function send_sms_notify(appName, service, detailInfo) {
   AV.Cloud.requestSmsCode({
     mobilePhoneNumber: '18600345198',
     template: 'ka_alert',
-		kaname:appName,
-		servicename: service,
-		detail:detailInfo
+    kaname:appName,
+    servicename: service,
+    detail:detailInfo
   }).then(function() {
-    console.log('successed to send notify sms');
+    console.log('successed to send notify sms to jfeng');
+  }, function(err) {
+    console.error(err);
+  });
+  AV.Cloud.requestSmsCode({
+    mobilePhoneNumber: '15658580416',
+    template: 'ka_alert',
+    kaname:appName,
+    servicename: service,
+    detail:detailInfo
+  }).then(function() {
+    console.log('successed to send notify sms to wchen');
   }, function(err) {
     console.error(err);
   });
