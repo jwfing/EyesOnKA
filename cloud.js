@@ -23,9 +23,9 @@ AV.Cloud.define('hello', function(request, response) {
   response.success('Hello world!');
 });
 
-function send_sms_notify(appName, service, detailInfo) {
+function send_sms_2person(mobile, appName, service, detailInfo) {
   AV.Cloud.requestSmsCode({
-    mobilePhoneNumber: '18600345198',
+    mobilePhoneNumber: mobile,
     template: 'ka_alert',
     kaname:appName,
     servicename: service,
@@ -35,17 +35,12 @@ function send_sms_notify(appName, service, detailInfo) {
   }, function(err) {
     console.error(err);
   });
-  AV.Cloud.requestSmsCode({
-    mobilePhoneNumber: '15658580416',
-    template: 'ka_alert',
-    kaname:appName,
-    servicename: service,
-    detail:detailInfo
-  }).then(function() {
-    console.log('successed to send notify sms to wchen');
-  }, function(err) {
-    console.error(err);
-  });
+}
+
+function send_sms_notify(appName, service, detailInfo) {
+  send_sms_2person('18600345198', appName, service, detailInfo);//jfeng
+  send_sms_2person('15658580416', appName, service, detailInfo);//wchen
+  send_sms_2person('18668012283', appName, service, detailInfo);//xzhuang
 }
 
 function send_notify(appName, service, detailInfo) {
@@ -93,8 +88,6 @@ AV.Cloud.define('redis_check_timer', function(req, res) {
           var appName = item.get('appName');
           var appId = item.get('appId');
           var criticalKey = item.get('criticalKey');
-          var expectedSize = item.get('expectedResultSize');
-          var notifyUrl = item.get('notifyUrl');
           var instanceId = item.get('instanceId');
 	  var engineUrl = item.get('engineEntranceUrl');
           var client = Redis.createClient(redisHost);
