@@ -93,7 +93,6 @@ AV.Cloud.define('redis_check_timer', function(req, res) {
           var criticalKey = item.get('criticalKey');
           var instanceId = item.get('instanceId');
 	  var engineUrl = item.get('engineEntranceUrl');
-          var client = Redis.createClient(redisHost);
           console.log('  check item: appName=%s, curTS=%d, targetRedis=%s, instanceId=%s, criticalKey=%s ...',
                        appName, currentTS, redisHost, instanceId, criticalKey)
           if (engineUrl && engineUrl.length>0) {
@@ -108,43 +107,49 @@ AV.Cloud.define('redis_check_timer', function(req, res) {
               }
             });
 	  }
-          client.on('error', function(err) {
-            send_notify(appName, "LeanCache", "UNKNOWN error. instanceId:" + instanceId);
-            console.error('    REDIS UNKNOWN error. appName:%s, instanceId:%s, causeBy: %s', appName, instanceId, err);
-            client.end();
+	  if (!redisHost || redisHost.length < 1) {
             setTimeout(checkRedisItem(i+1), 2000);
-            return;
-          });
-          client.on('connect', function() {
-            client.exists(criticalKey, function(err, reply) {
-              if (err || reply < 1) {
-                send_notify(appName, "LeanCache", "READ error. instanceId:" + instanceId + ', key:' + criticalKey);
-                console.error('    REDIS READ error. appName:%s, instanceId:%s, causeBy:%s', appName, instanceId, err);
-              } else {
-                // do nothing.
-              }
-              // read internal monitor key
-              client.get(internal_monitor_key, function(err, response){
-                if (err || !response) {
-                  send_notify(appName, "LeanCache", "internal Key not exist.");
-                  console.error('    REDIS READ internal key error. appName:%s, instanceId:%s, causeBy:%s', appName, instanceId, err)
-                } else if (!firstLaunch && parseInt(response) + allowedMaxGap < currentTS) {
-                  send_notify(appName, "LeanCache", "Invalid internal Key. value:" + response + ", curTS:" + currentTS + ", delay:" + (currentTS-parseInt(response))/60 + ' mins');
-                  console.warn('    REDIS Invalid internal key. appName:%s, instanceId:%s, value:%s, curTS:%d', appName, instanceId, response, currentTS)
+	  } else {
+
+            var client = Redis.createClient(redisHost);
+            client.on('error', function(err) {
+              send_notify(appName, "LeanCache", "UNKNOWN error. instanceId:" + instanceId);
+              console.error('    REDIS UNKNOWN error. appName:%s, instanceId:%s, causeBy: %s', appName, instanceId, err);
+              client.end();
+              setTimeout(checkRedisItem(i+1), 2000);
+              return;
+            });
+            client.on('connect', function() {
+              client.exists(criticalKey, function(err, reply) {
+                if (err || reply < 1) {
+                  send_notify(appName, "LeanCache", "READ error. instanceId:" + instanceId + ', key:' + criticalKey);
+                  console.error('    REDIS READ error. appName:%s, instanceId:%s, causeBy:%s', appName, instanceId, err);
+                } else {
+                  // do nothing.
                 }
-                // write new value to internal monitor key
-                client.set(internal_monitor_key, currentTS, function(err){
-                  if (err) {
-                    send_notify(appName, "LeanCache", "WRITE internal key error. ");
-                    console.error('   REDIS WRITE internal key error. appName:%s, instanceId:%s, causeBy:%s', appName, instanceId, err);
-		  }
-                  client.end();
-                  setTimeout(checkRedisItem(i+1), 2000);
+                // read internal monitor key
+                client.get(internal_monitor_key, function(err, response){
+                  if (err || !response) {
+                    send_notify(appName, "LeanCache", "internal Key not exist.");
+                    console.error('    REDIS READ internal key error. appName:%s, instanceId:%s, causeBy:%s', appName, instanceId, err)
+                  } else if (!firstLaunch && parseInt(response) + allowedMaxGap < currentTS) {
+                    send_notify(appName, "LeanCache", "Invalid internal Key. value:" + response + ", curTS:" + currentTS + ", delay:" + (currentTS-parseInt(response))/60 + ' mins');
+                    console.warn('    REDIS Invalid internal key. appName:%s, instanceId:%s, value:%s, curTS:%d', appName, instanceId, response, currentTS)
+                  }
+                  // write new value to internal monitor key
+                  client.set(internal_monitor_key, currentTS, function(err){
+                    if (err) {
+                      send_notify(appName, "LeanCache", "WRITE internal key error. ");
+                      console.error('   REDIS WRITE internal key error. appName:%s, instanceId:%s, causeBy:%s', appName, instanceId, err);
+		    }
+                    client.end();
+                    setTimeout(checkRedisItem(i+1), 2000);
+                  });
                 });
-              });
-            })
-          });
-        }
+              })
+            });
+          }
+	}
       }
       checkRedisItem(0);
       res.success(results.length)
