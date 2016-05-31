@@ -130,7 +130,7 @@ AV.Cloud.define('redis_check_timer', function(req, res) {
                   console.error('    REDIS READ internal key error. appName:%s, instanceId:%s, causeBy:%s', appName, instanceId, err)
                 } else if (!firstLaunch && parseInt(response) + allowedMaxGap < currentTS) {
                   send_notify(appName, "LeanCache", "Invalid internal Key. value:" + response + ", curTS:" + currentTS + ", delay:" + (currentTS-parseInt(response))/60 + ' mins');
-                  console.warn('    REDIS Invalid internal key. appName:%s, instanceId:%s, value:%s', appName, instanceId, response)
+                  console.warn('    REDIS Invalid internal key. appName:%s, instanceId:%s, value:%s, curTS:%d', appName, instanceId, response, currentTS)
                 }
                 // write new value to internal monitor key
                 client.set(internal_monitor_key, currentTS, function(err){
